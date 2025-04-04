@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: transcend-logistics-backend
+    runtime: node
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 5000
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://justice00000.github.io/transcend
+      # Add other environment variables here
