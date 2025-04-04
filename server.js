@@ -15,6 +15,7 @@ const port = process.env.PORT || 10000;
 const corsOptions = {
   origin: [
     'https://justice00000.github.io/transcend',
+    'https://git.transcendlogistics.online',
     'http://localhost:3000'
   ],
   methods: ['GET', 'POST', 'OPTIONS'],
