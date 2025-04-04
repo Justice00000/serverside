@@ -3,52 +3,70 @@ const express = require('express');
 const { Pool } = require('pg');
 const path = require('path');
 const dotenv = require('dotenv');
+const cors = require('cors');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT || 10000;
 
-// Middleware for parsing JSON bodies
+// CORS Configuration
+const corsOptions = {
+  origin: [
+    'https://justice00000.github.io/transcend',
+    'http://localhost:3000'
+  ],
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+};
+
+// Middleware
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+// Optional: Static file serving (commented out for now)
+// app.use(express.static(path.join(__dirname, 'public')));
 
-// Database connection pool with the connection that worked in your test
+// Database connection pool
 const pool = new Pool({
-  connectionString: 'postgresql://admin_db_5jq5_user:zQ7Zey6xTtDtqT99fKgUepfsuEhCjIoZ@dpg-cvn925a4d50c73fv6m70-a.oregon-postgres.render.com/admin_db_5jq5',
+  connectionString: process.env.DATABASE_URL || 'postgresql://admin_db_5jq5_user:zQ7Zey6xTtDtqT99fKgUepfsuEhCjIoZ@dpg-cvn925a4d50c73fv6m70-a.oregon-postgres.render.com/admin_db_5jq5',
   ssl: {
     rejectUnauthorized: false
   }
 });
 
-// Test database connection on startup
-pool.query('SELECT NOW()', (err, res) => {
-  if (err) {
-    console.error('Database connection error:', err);
-  } else {
-    console.log('Database connected successfully');
-    
-    // Test query to verify tracking_orders table exists
-    pool.query('SELECT COUNT(*) FROM tracking_orders', (err, res) => {
-      if (err) {
-        console.error('Error accessing tracking_orders table:', err);
-      } else {
-        console.log(`Found ${res.rows[0].count} tracking records in database`);
-      }
-    });
-  }
+// Health Check Route
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Transcend Logistics Backend is running!',
+    timestamp: new Date().toISOString(),
+    databaseStatus: 'Connected'
+  });
 });
 
-// API endpoint for tracking
+// Database Connection Test
+pool.connect()
+  .then(client => {
+    console.log('Database connected successfully');
+    client.release();
+
+    // Test query to verify tracking_orders table
+    return pool.query('SELECT COUNT(*) FROM tracking_orders');
+  })
+  .then(result => {
+    console.log(`Found ${result.rows[0].count} tracking records in database`);
+  })
+  .catch(err => {
+    console.error('Database connection or query error:', err);
+  });
+
+// Existing tracking API endpoint
 app.post('/api/track', async (req, res) => {
   const { trackId } = req.body;
   
   console.log("Received tracking request for:", trackId);
   
-  // Validate tracking ID
   if (!trackId) {
     return res.status(400).json({ 
       found: false,
@@ -57,21 +75,17 @@ app.post('/api/track', async (req, res) => {
   }
 
   try {
-    // Query the database for the tracking record
     const query = 'SELECT * FROM tracking_orders WHERE tracking_number = $1';
     const result = await pool.query(query, [trackId]);
     
     console.log("Query result:", result.rowCount > 0 ? "Record found" : "No record found");
     
-    // Check if a record was found
     if (result.rows.length > 0) {
       const record = result.rows[0];
       
-      // Format dates if they exist
       const dispatchDate = record.dispatch_date ? new Date(record.dispatch_date).toLocaleDateString() : null;
       const deliveryDate = record.delivery_date ? new Date(record.delivery_date).toLocaleDateString() : null;
       
-      // Return tracking information mapped to your actual columns
       res.json({
         found: true,
         tracking_number: record.tracking_number,
@@ -95,7 +109,6 @@ app.post('/api/track', async (req, res) => {
         }
       });
     } else {
-      // Return not found response
       res.json({
         found: false,
         message: 'Tracking number not found.'
@@ -105,7 +118,6 @@ app.post('/api/track', async (req, res) => {
     console.error('Database error details:', error.message);
     console.error('Error stack:', error.stack);
     
-    // Return error response with more details
     res.status(500).json({
       found: false,
       message: 'Error retrieving tracking information',
@@ -114,12 +126,29 @@ app.post('/api/track', async (req, res) => {
   }
 });
 
-// Serve the main HTML page for any other routes
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ 
+    error: 'Something went wrong!',
+    message: err.message 
+  });
 });
 
 // Start the server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  pool.end()
+    .then(() => {
+      console.log('Database pool has ended');
+      process.exit(0);
+    })
+    .catch(err => {
+      console.error('Error ending database pool', err);
+      process.exit(1);
+    });
 });
